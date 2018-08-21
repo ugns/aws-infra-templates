@@ -1332,6 +1332,12 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-LoadBalancerFullName"
 
+  LoadBalancer:
+    Description: 'ALB ARN for services.'
+    Value: !Ref LoadBalancer
+    Export:
+      Name: !Sub "${AWS::StackName}-LoadBalancer"
+
   HttpListener:
     Description: 'ALB HTTP listener for services.'
     Value: !Ref HttpListener
