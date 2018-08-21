@@ -17,6 +17,7 @@ Metadata:
       - Label:
           default: 'EC2 Parameters'
         Parameters:
+          - LatestAmiId
           - InstanceType
           - KeyName
           - IAMUserAccess
@@ -44,6 +45,11 @@ Parameters:
     Description: 'Optional but recommended stack name of parent alert stack based on operations/alert.yaml template.'
     Type: String
     Default: ''
+
+  LatestAmiId:
+    Description: AMI ID
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn-ami-hvm-x86_64-gp2
 
   KeyName:
     Description: 'Optional key pair of the ec2-user to establish a SSH connection to the EC2 instances of the ECS cluster.'
@@ -83,39 +89,6 @@ Parameters:
     Type: String
     Default: 'bastion'
 
-Mappings:
-  RegionMap:
-    ap-south-1:
-      AMI: ami-5a8da735
-    eu-west-3:
-      AMI: ami-d50bbaa8
-    eu-west-2:
-      AMI: ami-b2b55cd5
-    eu-west-1:
-      AMI: ami-e4515e0e
-    ap-northeast-2:
-      AMI: ami-ebc47185
-    ap-northeast-1:
-      AMI: ami-9c9443e3
-    sa-east-1:
-      AMI: ami-83d58fef
-    ca-central-1:
-      AMI: ami-03e86a67
-    ap-southeast-1:
-      AMI: ami-ed838091
-    ap-southeast-2:
-      AMI: ami-33f92051
-    eu-central-1:
-      AMI: ami-a058674b
-    us-east-1:
-      AMI: ami-cfe4b2b0
-    us-east-2:
-      AMI: ami-40142d25
-    us-west-1:
-      AMI: ami-0e86606d
-    us-west-2:
-      AMI: ami-0ad99772
-
 Conditions:
   HasKeyName: !Not [!Equals [!Ref KeyName, '']]
   HasIAMUserAccess: !Equals [!Ref IAMUserAccess, 'true']
@@ -134,6 +107,7 @@ Resources:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
+      InstanceId: !Ref Instance
 
   RecordSet:
     Condition: HasZone
@@ -148,21 +122,6 @@ Resources:
         - !Ref ElasticIP
       TTL: '60'
       Type: A
-
-  NetworkInterface:
-    Type: AWS::EC2::NetworkInterface
-    Properties:
-      GroupSet:
-        - !Ref SecurityGroup
-        - !If [HasEFSVolume, {'Fn::ImportValue': !Sub "${ParentEFSStack}-SecurityGroup"}, !Ref 'AWS::NoValue']
-      SubnetId:
-        Fn::ImportValue: !Sub "${ParentVPCStack}-Subnet${SubnetZone}Public"
-
-  EIPAssociation:
-    Type: AWS::EC2::EIPAssociation
-    Properties:
-      AllocationId: !GetAtt 'ElasticIP.AllocationId'
-      NetworkInterfaceId: !Ref NetworkInterface
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -461,13 +420,18 @@ Resources:
                   - /etc/cfn/cfn-hup.conf
                   - /etc/cfn/hooks.d/cfn-auto-reloader.conf
     Properties:
-      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
       IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
       KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
       NetworkInterfaces:
-        - DeviceIndex: '0'
-          NetworkInterfaceId: !Ref NetworkInterface
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SecurityGroup
+            - !If [HasEFSVolume, {'Fn::ImportValue': !Sub "${ParentEFSStack}-SecurityGroup"}, !Ref 'AWS::NoValue']
+          SubnetId:
+            Fn::ImportValue: !Sub "${ParentVPCStack}-Subnet${SubnetZone}Public"
       Tags:
         - Key: Name
           Value: !Ref 'AWS::StackName'
