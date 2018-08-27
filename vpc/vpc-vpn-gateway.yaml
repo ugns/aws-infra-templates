@@ -151,48 +151,6 @@ Resources:
       RouteTableId:
         Fn::ImportValue: !Sub "${ParentVPCStack}-RouteTableDPrivate"
 
-  PublicARoute:
-    DependsOn:
-      - VPNConnection
-    Type: AWS::EC2::Route
-    Properties:
-      DestinationCidrBlock: !Sub "${RemoteVpnDeviceIp}/32"
-      GatewayId: !Ref VPNGateway
-      RouteTableId:
-        Fn::ImportValue: !Sub "${ParentVPCStack}-RouteTableAPublic"
-
-  PublicBRoute:
-    DependsOn:
-      - VPNConnection
-    Type: AWS::EC2::Route
-    Properties:
-      DestinationCidrBlock: !Sub "${RemoteVpnDeviceIp}/32"
-      GatewayId: !Ref VPNGateway
-      RouteTableId:
-        Fn::ImportValue: !Sub "${ParentVPCStack}-RouteTableBPublic"
-
-  PublicCRoute:
-    Condition: Have3AZs
-    DependsOn:
-      - VPNConnection
-    Type: AWS::EC2::Route
-    Properties:
-      DestinationCidrBlock: !Sub "${RemoteVpnDeviceIp}/32"
-      GatewayId: !Ref VPNGateway
-      RouteTableId:
-        Fn::ImportValue: !Sub "${ParentVPCStack}-RouteTableCPublic"
-
-  PublicDRoute:
-    Condition: Have4AZs
-    DependsOn:
-      - VPNConnection
-    Type: AWS::EC2::Route
-    Properties:
-      DestinationCidrBlock: !Sub "${RemoteVpnDeviceIp}/32"
-      GatewayId: !Ref VPNGateway
-      RouteTableId:
-        Fn::ImportValue: !Sub "${ParentVPCStack}-RouteTableDPublic"
-
   AlarmVpnConnectionTunnelState:
     Condition: HasAlertTopic
     Type: AWS::CloudWatch::Alarm
@@ -215,3 +173,9 @@ Outputs:
   StackName:
     Description: 'Stack name'
     Value: !Ref 'AWS::StackName'
+
+  VPNGateway:
+    Description: 'VPN Gateway'
+    Value: !Ref VPNGateway
+    Export:
+      Name: !Sub "${AWS::StackName}-VPNGateway"
