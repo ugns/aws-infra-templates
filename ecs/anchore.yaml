@@ -1,0 +1,934 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 'ECS: Anchore Container Scanning Service'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Parent Stacks'
+        Parameters:
+          - ParentVPCStack
+          - ParentECSStack
+          - ParentRDSStack
+          - ParentRedisStack
+          - ParentZoneStack
+          - ParentAlertStack
+
+      - Label:
+          default: 'Load Balancer Parameters'
+        Parameters:
+          - LoadBalancerCertificateArn
+
+      - Label:
+          default: 'Anchore Parameters'
+        Parameters:
+          - Hostname
+          - engineImage
+          - enterpriseImage
+          - adminEmail
+          - adminPassword
+          - LogsRetentionInDays
+
+Parameters:
+  ParentVPCStack:
+    Description: 'Stack name of parent VPC stack based on vpc/vpc-*tier.yaml template.'
+    Type: String
+
+  ParentECSStack:
+    Description: 'Stack name of parent ECS stack based on ecs/cluster.yaml template.'
+    Type: String
+    Default: ''
+
+  ParentRDSStack:
+    Description: 'Stack name of parent RDS stack based on data/rds-*postgres.yaml template.'
+    Type: String
+    Default: ''
+
+  ParentRedisStack:
+    Description: 'Optional stack name of parent Redis stack based on data/ec-redis.yaml template.'
+    Type: String
+    Default: ''
+
+  ParentZoneStack:
+    Description: 'Optional stack name of parent zone stack based on vpc/zone-*.yaml template.'
+    Type: String
+    Default: ''
+
+  ParentAlertStack:
+    Description: 'Optional but recommended stack name of parent alert stack based on operations/alert.yaml template.'
+    Type: String
+    Default: ''
+
+  LoadBalancerCertificateArn:
+    Description: 'Optional Amazon Resource Name (ARN) of the certificate to associate with the load balancer.'
+    Type: String
+    Default: ''
+
+  Hostname:
+    Description: 'Short hostname that is used to create the DNS entry, e.g. ${Hostname}.${HostedZoneName}. Requires ParentZoneStack parameter!'
+    Type: String
+    Default: 'anchore'
+
+  engineImage:
+    Type: String
+    Description: The Anchore Engine image
+    Default: anchore/anchore-engine:v0.2.4
+
+  enterpriseImage:
+    Type: String
+    Description: The Anchore Enterprise UI image.  Requires ParentRedisStack, ParentZoneStack & LoadBalancerCertificateArn parameters!
+    Default: ''
+
+  adminEmail:
+    Type: String
+    Description: Anchore Engine Admin email address
+    MinLength: 1
+    Default: admin@myemail.com
+
+  adminPassword:
+    Type: String
+    Description: Anchore Engine Admin password
+    MinLength: 1
+    NoEcho: True
+    Default: foobar
+
+  LogsRetentionInDays:
+    Description: 'Specifies the number of days you want to retain log events in the specified log group.'
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+
+Conditions:
+  HasLoadBalancerCertificateArn: !Not [!Equals [!Ref LoadBalancerCertificateArn, '']]
+  HasHostname: !Not [!Equals [!Ref Hostname, '']]
+  HasEnterprise: !And [!Condition HasRedis, !Condition HasZone, !Condition HasLoadBalancerCertificateArn, !Not [!Equals [!Ref enterpriseImage, '']]]
+  HasZone: !Not [!Equals [!Ref ParentZoneStack, '']]
+  HasRedis: !Not [!Equals [!Ref ParentRedisStack, '']]
+  HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
+
+Resources:
+  LogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Ref AWS::StackName
+      RetentionInDays: !Ref LogsRetentionInDays
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "anchore-TaskRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "anchore-ServiceRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+
+  ALBSecurityGroupInApi:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancerSecurityGroup'}
+      IpProtocol: tcp
+      FromPort: 8228
+      ToPort: 8228
+      CidrIp: 0.0.0.0/0
+
+  ALBSecurityGroupInK8SWebhook:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancerSecurityGroup'}
+      IpProtocol: tcp
+      FromPort: 8338
+      ToPort: 8338
+      CidrIp: 0.0.0.0/0
+
+  ALBSecurityGroupInCatalog:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancerSecurityGroup'}
+      IpProtocol: tcp
+      FromPort: 8082
+      ToPort: 8082
+      CidrIp: 0.0.0.0/0
+
+  ALBSecurityGroupInSimpleQueue:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancerSecurityGroup'}
+      IpProtocol: tcp
+      FromPort: 8083
+      ToPort: 8083
+      CidrIp: 0.0.0.0/0
+
+  ALBSecurityGroupInPolicyEngine:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancerSecurityGroup'}
+      IpProtocol: tcp
+      FromPort: 8087
+      ToPort: 8087
+      CidrIp: 0.0.0.0/0
+
+  RedisSecurityGroupInECS:
+    Condition: HasRedis
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:  {'Fn::ImportValue': !Sub '${ParentRedisStack}-SecurityGroup'}
+      IpProtocol: tcp
+      FromPort:  {'Fn::ImportValue': !Sub '${ParentRedisStack}-PrimaryEndPoint-Port'}
+      ToPort:  {'Fn::ImportValue': !Sub '${ParentRedisStack}-PrimaryEndPoint-Port'}
+      SourceSecurityGroupId:  {'Fn::ImportValue': !Sub '${ParentECSStack}-SecurityGroup'}
+
+  CatalogTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "anchore-catalog"
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: "catalog"
+          Image: !Ref engineImage
+          PortMappings:
+            - HostPort: 0
+              ContainerPort: 8082
+          Cpu: 128
+          MemoryReservation: 256
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "anchore-engine"
+          MountPoints:
+            - SourceVolume: "config"
+              ContainerPath: "/config/config.yaml"
+              ReadOnly: true
+          Environment:
+            - Name: ANCHORE_ENGINE_SERVICES
+              Value: anchore-catalog
+            - Name: ANCHORE_CLI_USER
+              Value: admin
+            - Name: ANCHORE_CLI_PASS
+              Value: !Ref adminPassword
+            - Name: ANCHORE_ADMIN_EMAIL
+              Value: !Ref adminEmail
+            - Name: ANCHORE_DB_USER
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-UserName"
+            - Name: ANCHORE_DB_PASSWORD
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Password"
+            - Name: ANCHORE_DB_NAME
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Name"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_HOST
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-EndPoint"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_PORT
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Port"
+            - Name: ANCHORE_ENGINE_SERVICE_SERVICE_HOST
+              Value: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+            - Name: ANCHORE_ENABLE_SSL
+              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+      Volumes:
+        - Name: "config"
+          Host:
+            SourcePath: "/mnt/efs/anchore/config.yaml"
+
+  SimpleQueueTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "anchore-simplequeue"
+      ContainerDefinitions:
+        - Name: "simplequeue"
+          Image: !Ref engineImage
+          PortMappings:
+            - HostPort: 0
+              ContainerPort: 8083
+          Cpu: 128
+          MemoryReservation: 256
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "anchore-engine"
+          MountPoints:
+            - SourceVolume: "config"
+              ContainerPath: "/config/config.yaml"
+              ReadOnly: true
+          Environment:
+            - Name: ANCHORE_ENGINE_SERVICES
+              Value: anchore-simplequeue
+            - Name: ANCHORE_CLI_USER
+              Value: admin
+            - Name: ANCHORE_CLI_PASS
+              Value: !Ref adminPassword
+            - Name: ANCHORE_ADMIN_EMAIL
+              Value: !Ref adminEmail
+            - Name: ANCHORE_DB_USER
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-UserName"
+            - Name: ANCHORE_DB_PASSWORD
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Password"
+            - Name: ANCHORE_DB_NAME
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Name"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_HOST
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-EndPoint"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_PORT
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Port"
+            - Name: ANCHORE_ENGINE_SERVICE_SERVICE_HOST
+              Value: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+            - Name: ANCHORE_ENABLE_SSL
+              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+      Volumes:
+        - Name: "config"
+          Host:
+            SourcePath: "/mnt/efs/anchore/config.yaml"
+
+  PolicyEngineTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "anchore-policy-engine"
+      ContainerDefinitions:
+        - Name: "policy_engine"
+          Image: !Ref engineImage
+          PortMappings:
+            - HostPort: 0
+              ContainerPort: 8087
+          Cpu: 128
+          MemoryReservation: 256
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "anchore-engine"
+          MountPoints:
+            - SourceVolume: "config"
+              ContainerPath: "/config/config.yaml"
+              ReadOnly: true
+          Environment:
+            - Name: ANCHORE_ENGINE_SERVICES
+              Value: anchore-policy-engine
+            - Name: ANCHORE_CLI_USER
+              Value: admin
+            - Name: ANCHORE_CLI_PASS
+              Value: !Ref adminPassword
+            - Name: ANCHORE_ADMIN_EMAIL
+              Value: !Ref adminEmail
+            - Name: ANCHORE_DB_USER
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-UserName"
+            - Name: ANCHORE_DB_PASSWORD
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Password"
+            - Name: ANCHORE_DB_NAME
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Name"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_HOST
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-EndPoint"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_PORT
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Port"
+            - Name: ANCHORE_ENGINE_SERVICE_SERVICE_HOST
+              Value: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+            - Name: ANCHORE_ENABLE_SSL
+              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+      Volumes:
+        - Name: "config"
+          Host:
+            SourcePath: "/mnt/efs/anchore/config.yaml"
+
+  APITaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "anchore-api"
+      ContainerDefinitions:
+        - Name: "apiext"
+          Image: !Ref engineImage
+          PortMappings:
+            - HostPort: 0
+              ContainerPort: 8228
+          Cpu: 128
+          MemoryReservation: 256
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "anchore-engine"
+          MountPoints:
+            - SourceVolume: "config"
+              ContainerPath: "/config/config.yaml"
+              ReadOnly: true
+          Environment:
+            - Name: ANCHORE_ENGINE_SERVICES
+              Value: anchore-api
+            - Name: ANCHORE_CLI_USER
+              Value: admin
+            - Name: ANCHORE_CLI_PASS
+              Value: !Ref adminPassword
+            - Name: ANCHORE_ADMIN_EMAIL
+              Value: !Ref adminEmail
+            - Name: ANCHORE_DB_USER
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-UserName"
+            - Name: ANCHORE_DB_PASSWORD
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Password"
+            - Name: ANCHORE_DB_NAME
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Name"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_HOST
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-EndPoint"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_PORT
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Port"
+            - Name: ANCHORE_ENGINE_SERVICE_SERVICE_HOST
+              Value: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+            - Name: ANCHORE_ENABLE_SSL
+              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+      Volumes:
+        - Name: "config"
+          Host:
+            SourcePath: "/mnt/efs/anchore/config.yaml"
+
+  K8SWebhookTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "anchore-k8s-webhook"
+      ContainerDefinitions:
+        - Name: "kubernetes-webhook"
+          Image: !Ref engineImage
+          PortMappings:
+            - HostPort: 0
+              ContainerPort: 8338
+          Cpu: 128
+          MemoryReservation: 256
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "anchore-engine"
+          MountPoints:
+            - SourceVolume: "config"
+              ContainerPath: "/config/config.yaml"
+              ReadOnly: true
+          Environment:
+            - Name: ANCHORE_ENGINE_SERVICES
+              Value: anchore-kubernetes-webhook
+            - Name: ANCHORE_CLI_USER
+              Value: admin
+            - Name: ANCHORE_CLI_PASS
+              Value: !Ref adminPassword
+            - Name: ANCHORE_ADMIN_EMAIL
+              Value: !Ref adminEmail
+            - Name: ANCHORE_DB_USER
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-UserName"
+            - Name: ANCHORE_DB_PASSWORD
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Password"
+            - Name: ANCHORE_DB_NAME
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Name"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_HOST
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-EndPoint"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_PORT
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Port"
+            - Name: ANCHORE_ENGINE_SERVICE_SERVICE_HOST
+              Value: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+            - Name: ANCHORE_ENABLE_SSL
+              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+      Volumes:
+        - Name: "config"
+          Host:
+            SourcePath: "/mnt/efs/anchore/config.yaml"
+
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "anchore-analyzer"
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: "analyzer"
+          Image: !Ref engineImage
+          Cpu: 256
+          MemoryReservation: 512
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "anchore-engine"
+          MountPoints:
+            - SourceVolume: "config"
+              ContainerPath: "/config/config.yaml"
+              ReadOnly: true
+          Environment:
+            - Name: ANCHORE_ENGINE_SERVICES
+              Value: anchore-worker
+            - Name: ANCHORE_CLI_USER
+              Value: admin
+            - Name: ANCHORE_CLI_PASS
+              Value: !Ref adminPassword
+            - Name: ANCHORE_ADMIN_EMAIL
+              Value: !Ref adminEmail
+            - Name: ANCHORE_DB_USER
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-UserName"
+            - Name: ANCHORE_DB_PASSWORD
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Password"
+            - Name: ANCHORE_DB_NAME
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Name"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_HOST
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-EndPoint"
+            - Name: ANCHORE_DB_POSTGRESQL_SERVICE_PORT
+              Value:
+                Fn::ImportValue: !Sub "${ParentRDSStack}-Port"
+            - Name: ANCHORE_ENGINE_SERVICE_SERVICE_HOST
+              Value: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+            - Name: ANCHORE_ENABLE_SSL
+              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+      Volumes:
+        - Name: "config"
+          Host:
+            SourcePath: "/mnt/efs/anchore/config.yaml"
+
+  EnterpriseTaskDefinition:
+    Condition: HasEnterprise
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "anchore-ui"
+      ContainerDefinitions:
+        - Name: "anchore-ui"
+          Image: !Ref enterpriseImage
+          PortMappings:
+            - HostPort: 0
+              ContainerPort: 3000
+          MemoryReservation: 512
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "anchore-ui"
+          MountPoints:
+            - SourceVolume: "config"
+              ContainerPath: "/config"
+              ReadOnly: true
+          Environment:
+            - Name: ANCHORE_ENGINE_URI
+              Value: !Sub
+                - "${Schema}://${Endpoint}:8228/v1"
+                - Schema: !If [HasLoadBalancerCertificateArn, 'https', 'http']
+                  Endpoint: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+            - Name: ANCHORE_REDIS_URL
+              Value: !Sub
+                - "redis://${Domain}:${CachePort}"
+                - Domain:
+                    Fn::ImportValue: !Sub "${ParentRedisStack}-PrimaryEndPoint-Address"
+                  CachePort:
+                    Fn::ImportValue: !Sub "${ParentRedisStack}-PrimaryEndPoint-Port"
+            - Name: ANCHORE_ENABLE_SSL
+              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+            - Name: ANCHORE_ENABLE_PROXY
+              Value: True
+      Volumes:
+        - Name: "config"
+          Host:
+            SourcePath: "/mnt/efs/anchore"
+
+  CatalogService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - CatalogListener
+    Properties:
+      Role: !GetAtt ServiceRole.Arn
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentECSStack}-Cluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      TaskDefinition: !Ref CatalogTaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: !Ref CatalogTargetGroup
+          ContainerPort: 8082
+          ContainerName: "catalog"
+
+  SimpleQueueService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - SimpleQueueListener
+    Properties:
+      Role: !GetAtt ServiceRole.Arn
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentECSStack}-Cluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      TaskDefinition: !Ref SimpleQueueTaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: !Ref SimpleQueueTargetGroup
+          ContainerPort: 8083
+          ContainerName: "simplequeue"
+
+  PolicyEngineService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - PolicyEngineListener
+    Properties:
+      Role: !GetAtt ServiceRole.Arn
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentECSStack}-Cluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      TaskDefinition: !Ref PolicyEngineTaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: !Ref PolicyEngineTargetGroup
+          ContainerPort: 8087
+          ContainerName: "policy_engine"
+
+  APIService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - APIListener
+    Properties:
+      Role: !GetAtt ServiceRole.Arn
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentECSStack}-Cluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      TaskDefinition: !Ref APITaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: !Ref APITargetGroup
+          ContainerPort: 8228
+          ContainerName: "apiext"
+
+  K8SWebhookService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - K8SWebhookListener
+    Properties:
+      Role: !GetAtt ServiceRole.Arn
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentECSStack}-Cluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      TaskDefinition: !Ref K8SWebhookTaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: !Ref K8SWebhookTargetGroup
+          ContainerPort: 8338
+          ContainerName: "kubernetes-webhook"
+
+  WorkerService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentECSStack}-Cluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      PlacementStrategies:
+        - Type: spread
+          Field: instanceId
+      TaskDefinition: !Ref WorkerTaskDefinition
+
+  EnterpriseService:
+    Condition: HasEnterprise
+    Type: AWS::ECS::Service
+    Properties:
+      Role: !GetAtt ServiceRole.Arn
+      Cluster:
+        Fn::ImportValue: !Sub "${ParentECSStack}-Cluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      TaskDefinition: !Ref EnterpriseTaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: !Ref EnterpriseTargetGroup
+          ContainerPort: 3000
+          ContainerName: "anchore-ui"
+
+  CatalogTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 90
+      HealthCheckTimeoutSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
+      HealthCheckPath: /health
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
+      Tags:
+        - Key: Name
+          Value: "anchore-catalog"
+
+  SimpleQueueTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 90
+      HealthCheckTimeoutSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
+      HealthCheckPath: /health
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
+      Tags:
+        - Key: Name
+          Value: "anchore-simplequeue"
+
+  PolicyEngineTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 150
+      HealthCheckTimeoutSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
+      HealthCheckPath: /health
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
+      Tags:
+        - Key: Name
+          Value: "anchore-policy-engine"
+
+  APITargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 90
+      HealthCheckTimeoutSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
+      HealthCheckPath: /health
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
+      Tags:
+        - Key: Name
+          Value: "anchore-api"
+
+  K8SWebhookTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 90
+      HealthCheckTimeoutSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
+      HealthCheckPath: /health
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
+      Tags:
+        - Key: Name
+          Value: "anchore-k8s-webhook"
+
+  EnterpriseTargetGroup:
+    Condition: HasEnterprise
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      HealthCheckPath: /service/health
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
+      Tags:
+        - Key: Name
+          Value: "anchore-ui"
+
+  CatalogListener:
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !If [HasLoadBalancerCertificateArn, !Ref LoadBalancerCertificateArn, !Ref 'AWS::NoValue']
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref CatalogTargetGroup
+      LoadBalancerArn: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancer'}
+      Port: 8082
+      Protocol: !If [HasLoadBalancerCertificateArn, 'HTTPS', 'HTTP']
+      SslPolicy: !If [HasLoadBalancerCertificateArn, ELBSecurityPolicy-FS-2018-06, !Ref 'AWS::NoValue']
+
+  SimpleQueueListener:
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !If [HasLoadBalancerCertificateArn, !Ref LoadBalancerCertificateArn, !Ref 'AWS::NoValue']
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref SimpleQueueTargetGroup
+      LoadBalancerArn: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancer'}
+      Port: 8083
+      Protocol: !If [HasLoadBalancerCertificateArn, 'HTTPS', 'HTTP']
+      SslPolicy: !If [HasLoadBalancerCertificateArn, ELBSecurityPolicy-FS-2018-06, !Ref 'AWS::NoValue']
+
+  PolicyEngineListener:
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !If [HasLoadBalancerCertificateArn, !Ref LoadBalancerCertificateArn, !Ref 'AWS::NoValue']
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref PolicyEngineTargetGroup
+      LoadBalancerArn: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancer'}
+      Port: 8087
+      Protocol: !If [HasLoadBalancerCertificateArn, 'HTTPS', 'HTTP']
+      SslPolicy: !If [HasLoadBalancerCertificateArn, ELBSecurityPolicy-FS-2018-06, !Ref 'AWS::NoValue']
+
+  APIListener:
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !If [HasLoadBalancerCertificateArn, !Ref LoadBalancerCertificateArn, !Ref 'AWS::NoValue']
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref APITargetGroup
+      LoadBalancerArn: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancer'}
+      Port: 8228
+      Protocol: !If [HasLoadBalancerCertificateArn, 'HTTPS', 'HTTP']
+      SslPolicy: !If [HasLoadBalancerCertificateArn, ELBSecurityPolicy-FS-2018-06, !Ref 'AWS::NoValue']
+
+  K8SWebhookListener:
+    Type : AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !If [HasLoadBalancerCertificateArn, !Ref LoadBalancerCertificateArn, !Ref 'AWS::NoValue']
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref K8SWebhookTargetGroup
+      LoadBalancerArn: {'Fn::ImportValue': !Sub '${ParentECSStack}-LoadBalancer'}
+      Port: 8338
+      Protocol: !If [HasLoadBalancerCertificateArn, 'HTTPS', 'HTTP']
+      SslPolicy: !If [HasLoadBalancerCertificateArn, ELBSecurityPolicy-FS-2018-06, !Ref 'AWS::NoValue']
+
+  EnterpriseListenerRule:
+    Condition: HasEnterprise
+    Type : AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref EnterpriseTargetGroup
+      Conditions:
+        - Field: host-header
+          Values:
+            - !Ref RecordSet
+      ListenerArn: {'Fn::ImportValue': !Sub '${ParentECSStack}-HttpsListener'}
+      Priority: 1
+
+  Certificate:
+    Condition: HasLoadBalancerCertificateArn
+    Type: AWS::ElasticLoadBalancingV2::ListenerCertificate
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref LoadBalancerCertificateArn
+      ListenerArn: {'Fn::ImportValue': !Sub '${ParentECSStack}-HttpsListener'}
+
+  RecordSet:
+    Condition: HasZone
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Comment: DNS Record for Anchore
+      HostedZoneId: {'Fn::ImportValue': !Sub '${ParentZoneStack}-HostedZoneId'}
+      Type: A
+      Name: !Sub
+        - "${Hostname}${HostedZoneName}"
+        - Hostname: !If [HasHostname, !Sub "${Hostname}.", '']
+          HostedZoneName: {'Fn::ImportValue': !Sub '${ParentZoneStack}-HostedZoneName'}
+      AliasTarget:
+        DNSName: {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}
+        HostedZoneId: {'Fn::ImportValue': !Sub '${ParentECSStack}-CanonicalHostedZoneID'}
+
+Outputs:
+  StackName:
+    Description: 'Stack name'
+    Value: !Ref 'AWS::StackName'
+
+  AnchoreEngineUrl:
+    Value: !Sub
+      - "${Schema}://${Endpoint}:8228/v1"
+      - Schema: !If [HasLoadBalancerCertificateArn, 'https', 'http']
+        Endpoint: !If [HasZone, !Ref RecordSet, {'Fn::ImportValue': !Sub '${ParentECSStack}-DNSName'}]
+    Description: Anchore Engine Mode URL (ANCHORE_CLI_URL)
+
+  EnterpriseUrl:
+    Condition: HasEnterprise
+    Value: !Sub "https://${RecordSet}"
+    Description: Anchore Enterprise UI URL
