@@ -38,6 +38,7 @@ Metadata:
           - MinSize
           - DesiredCapacity
           - DrainingTimeoutInSeconds
+          - AnchoreConfigBucket
 
       - Label:
           default: 'Cluster Scaling Parameters'
@@ -150,6 +151,11 @@ Parameters:
     MinValue: 60
     MaxValue: 7200
 
+  AnchoreConfigBucket:
+    Description: 'Optional S3 Bucket holding Anchore Container Scanning configs.'
+    Type: String
+    Default: ''
+
   ContainerMaxCPU:
     Description: 'The maximum number of cpu reservation per container that you plan to run on this cluster. A container instance has 1,024 CPU units for every CPU core.'
     Type: Number
@@ -181,6 +187,7 @@ Conditions:
   HasEFSVolume: !Not [!Equals [!Ref ParentEFSStack, '']]
   HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
   HasSpotPrice: !Not [!Equals [!Ref SpotPrice, '']]
+  HasAnchore: !Not [!Equals [!Ref AnchoreConfigBucket, '']]
 
 Resources:
   Cluster:
@@ -475,6 +482,7 @@ Resources:
         - TargetGroupArn: !Ref DefaultTargetGroup
           Type: forward
       LoadBalancerArn: !Ref LoadBalancer
+      SslPolicy: ELBSecurityPolicy-FS-2018-06
       Port: 443
       Protocol: HTTPS
 
@@ -489,6 +497,7 @@ Resources:
             - !If [HasEFSVolume, efsmount, !Ref 'AWS::NoValue']
             - ecs
             - install
+            - !If [HasAnchore, anchore, !Ref 'AWS::NoValue']
         ssm:
           packages:
             rpm:
@@ -801,6 +810,29 @@ Resources:
                   - /opt/lifecycle-poller/poller.conf
                   - /opt/lifecycle-poller/daemon.rb
                   - /opt/lifecycle-poller/worker.rb
+        anchore:
+          files:
+            /mnt/efs/anchore/config.yaml:
+              source: !Sub "https://s3.amazonaws.com/${AnchoreConfigBucket}/anchore/config.yaml"
+              owner: root
+              group: root
+              mode: '000644'
+            /mnt/efs/anchore/config-ui.yaml:
+              source: !Sub "https://s3.amazonaws.com/${AnchoreConfigBucket}/anchore/config-ui.yaml"
+              owner: root
+              group: root
+              mode: '000644'
+            /mnt/efs/anchore/license.yaml:
+              source: !Sub "https://s3.amazonaws.com/${AnchoreConfigBucket}/anchore/license.yaml"
+              owner: root
+              group: root
+              mode: '000644'
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: "S3"
+          roleName: !Ref Role
+          buckets:
+            - !If [HasAnchore, !Ref AnchoreConfigBucket, !Ref 'AWS::NoValue']
     Properties:
       ImageId: !Ref ECSAMI
       IamInstanceProfile: !Ref InstanceProfile
@@ -1337,6 +1369,12 @@ Outputs:
     Value: !Ref LoadBalancer
     Export:
       Name: !Sub "${AWS::StackName}-LoadBalancer"
+
+  LoadBalancerSecurityGroup:
+    Description: 'ALB Security Group for services.'
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-LoadBalancerSecurityGroup"
 
   HttpListener:
     Description: 'ALB HTTP listener for services.'
