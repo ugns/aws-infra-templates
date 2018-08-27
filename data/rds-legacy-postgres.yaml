@@ -1,0 +1,90 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 'Data: ElastiCache Redis Cluster'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'RDS Parameters'
+        Parameters:
+          - Endpoint
+          - DBName
+          - MasterUsername
+          - MasterUserPassword
+          - Port
+          - SecurityGroup
+
+Parameters:
+  Endpoint:
+    Description: The connection endpoint for the database.
+    Type: String
+
+  DBName:
+    Description: The database schema name.
+    Type: String
+
+  MasterUsername:
+    Description: The master username for connecting to the database.
+    Type: String
+
+  MasterUserPassword:
+    Description: The master user password for authenticating to the database.
+    NoEcho: True
+    Type: String
+
+  Port:
+    Description: The port number on which the database accepts connections.
+    Type: Number
+    Default: 5432
+
+  SecurityGroup:
+    Description: Security Group for the database.
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+  Dummy:
+    Type: AWS::S3::Bucket
+    Properties: {}
+
+Outputs:
+  StackName:
+    Description: 'Stack name'
+    Value: !Ref 'AWS::StackName'
+
+  EndPoint:
+    Value: !Ref Endpoint
+    Description: The connection endpoint for the database.
+    Export:
+      Name: !Sub "${AWS::StackName}-EndPoint"
+
+  Name:
+    Value: !Ref DBName
+    Description: The database schema name.
+    Export:
+      Name: !Sub "${AWS::StackName}-Name"
+
+  UserName:
+    Value: !Ref MasterUsername
+    Description: The master username for connecting to the database.
+    Export:
+      Name: !Sub "${AWS::StackName}-UserName"
+
+  Password:
+    Value: !Ref MasterUserPassword
+    Description: The master user password for authenticating to the database.
+    Export:
+      Name: !Sub "${AWS::StackName}-Password"
+
+  Port:
+    Value: !Ref Port
+    Description: The port number on which the database accepts connections.
+    Export:
+      Name: !Sub "${AWS::StackName}-Port"
+
+  SecurityGroup:
+    Value: !Ref SecurityGroup
+    Description: Security Group for the database.
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityGroup"
