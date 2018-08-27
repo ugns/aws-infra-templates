@@ -1,0 +1,138 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 'Data: ElastiCache Redis Cluster'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Parent Stacks'
+        Parameters:
+          - ParentVPCStack
+          - ParentAlertStack
+
+      - Label:
+          default: 'VPC Parameters'
+        Parameters:
+          - VPCTier
+
+      - Label:
+          default: 'Redis Parameters'
+        Parameters:
+          - Encryption
+          - NodeType
+          - NodeCount
+
+Parameters:
+  ParentVPCStack:
+    Description: 'Stack name of parent VPC stack based on vpc/vpc-*tier.yaml template.'
+    Type: String
+
+  ParentAlertStack:
+    Description: 'Optional but recommended stack name of parent alert stack based on operations/alert.yaml template.'
+    Type: String
+    Default: ''
+
+  VPCTier:
+    Description: 'Which VPC Tier'
+    Type: String
+    Default: Private
+    AllowedValues: ['Private','Data']
+
+  Encryption:
+    Description: 'Enable encryption at rest.'
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+
+  NodeType:
+    Type: String
+    Description: The compute and memory capacity of the nodes in the Redis Cluster
+    Default: cache.t2.micro
+
+  NodeCount:
+    Type: Number
+    Description: The number of nodes in the redis cluster.
+    Default: 2
+
+Conditions:
+  HasAlertTopic: !Not [!Equals [!Ref ParentAlertStack, '']]
+  MultiAZ: !Not [!Equals [!Ref NodeCount, 1]]
+
+Resources:
+  ReplicationGroup:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      AtRestEncryptionEnabled: !Ref Encryption
+      AutomaticFailoverEnabled: !If [MultiAZ, true, false]
+      CacheNodeType: !Ref NodeType
+      CacheSubnetGroupName: !Ref CacheSubnetGroup
+      Engine: redis
+      NumCacheClusters: !Ref NodeCount
+      ReplicationGroupDescription: !Sub "Redis cluster for ${AWS::StackName}"
+      ReplicationGroupId: !Ref AWS::StackName
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+
+  CacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: !Sub "Subnets available for the Redis Cluster ${AWS::StackName}"
+      SubnetIds: !Split [',', {'Fn::ImportValue': !Sub "${ParentVPCStack}-Subnets${VPCTier}"}]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "Redis Cluster ${AWS::StackName} security group"
+      VpcId:
+        Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  SecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: tcp
+      FromPort: !GetAtt ReplicationGroup.PrimaryEndPoint.Port
+      ToPort: !GetAtt ReplicationGroup.PrimaryEndPoint.Port
+      SourceSecurityGroupId: !Ref SecurityGroup
+
+Outputs:
+  SecurityGroup:
+    Value: !Ref SecurityGroup
+    Description: Security Group of Redis cluster.
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityGroup"
+
+  ReplicationGroup:
+    Value: !Ref ReplicationGroup
+    Description: Replication Group of Redis cluster.
+    Export:
+      Name: !Sub "${AWS::StackName}-ReplicationGroup"
+
+  PrimaryEndPointAddress:
+    Value: !GetAtt ReplicationGroup.PrimaryEndPoint.Address
+    Description: The DNS address of the primary read-write cache node.
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryEndPoint-Address"
+
+  PrimaryEndPointPort:
+    Value: !GetAtt ReplicationGroup.PrimaryEndPoint.Port
+    Description: The number of the port that the primary read-write cache engine is listening on.
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimaryEndPoint-Port"
+
+  ReadEndPointAddresses:
+    Value: !GetAtt ReplicationGroup.ReadEndPoint.Addresses
+    Description: A string with a list of endpoints for the read-only replicas. The order of the addresses maps to the order of the ports from the ReadEndPoint.Ports attribute.
+    Export:
+      Name: !Sub "${AWS::StackName}-ReadEndPoint-Addresses"
+
+  ReadEndPointPorts:
+    Value: !GetAtt ReplicationGroup.ReadEndPoint.Ports
+    Description: A string with a list of ports for the read-only replicas. The order of the ports maps to the order of the addresses from the ReadEndPoint.Addresses attribute.
+    Export:
+      Name: !Sub "${AWS::StackName}-ReadEndPoint-Ports"
