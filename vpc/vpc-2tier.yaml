@@ -91,6 +91,7 @@ Resources:
       AvailabilityZone: !Select [0, {'Fn::GetAZs': !Ref 'AWS::Region'}]
       CidrBlock: !Select [0, !Cidr [!GetAtt VPC.CidrBlock, 12, 12]]
       Ipv6CidrBlock: !If [DualStacked, !Select [0, !Cidr [!Select [0, !GetAtt VPC.Ipv6CidrBlocks], 12, 64]], !Ref 'AWS::NoValue']
+      MapPublicIpOnLaunch: True
       VpcId: !Ref VPC
       Tags:
         - Key: Name
@@ -119,6 +120,7 @@ Resources:
       AvailabilityZone: !Select [1, {'Fn::GetAZs': !Ref 'AWS::Region'}]
       CidrBlock: !Select [1, !Cidr [!GetAtt VPC.CidrBlock, 12, 12]]
       Ipv6CidrBlock: !If [DualStacked, !Select [1, !Cidr [!Select [0, !GetAtt VPC.Ipv6CidrBlocks], 12, 64]], !Ref 'AWS::NoValue']
+      MapPublicIpOnLaunch: True
       VpcId: !Ref VPC
       Tags:
         - Key: Name
@@ -148,6 +150,7 @@ Resources:
       AvailabilityZone: !Select [2, {'Fn::GetAZs': !Ref 'AWS::Region'}]
       CidrBlock: !Select [2, !Cidr [!GetAtt VPC.CidrBlock, 12, 12]]
       Ipv6CidrBlock: !If [DualStacked, !Select [2, !Cidr [!Select [0, !GetAtt VPC.Ipv6CidrBlocks], 12, 64]], !Ref 'AWS::NoValue']
+      MapPublicIpOnLaunch: True
       VpcId: !Ref VPC
       Tags:
         - Key: Name
@@ -178,6 +181,7 @@ Resources:
       AvailabilityZone: !Select [3, {'Fn::GetAZs': !Ref 'AWS::Region'}]
       CidrBlock: !Select [3, !Cidr [!GetAtt VPC.CidrBlock, 12, 12]]
       Ipv6CidrBlock: !If [DualStacked, !Select [3, !Cidr [!Select [0, !GetAtt VPC.Ipv6CidrBlocks], 12, 64]], !Ref 'AWS::NoValue']
+      MapPublicIpOnLaunch: True
       VpcId: !Ref VPC
       Tags:
         - Key: Name
