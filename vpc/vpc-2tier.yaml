@@ -450,6 +450,22 @@ Resources:
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
       VpcId: !Ref VPC
 
+  # Setup our VPC Interface Endpoints
+  EndpointCloudformation:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: True
+      SecurityGroupIds:
+        - !GetAtt VPC.DefaultSecurityGroup
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.cloudformation"
+      SubnetIds:
+        - !Ref SubnetAPrivate
+        - !Ref SubnetBPrivate
+        - !If [Have3AZs, !Ref SubnetCPrivate, !Ref 'AWS::NoValue']
+        - !If [Have4AZs, !Ref SubnetDPrivate, !Ref 'AWS::NoValue']
+      VpcEndpointType: Interface
+      VpcId: !Ref VPC
+
   # Setup NetworkAcl for each tier
   NetworkAclPrivate:
     Type: AWS::EC2::NetworkAcl
