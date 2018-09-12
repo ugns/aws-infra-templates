@@ -622,27 +622,27 @@ Outputs:
       Name: !Sub "${AWS::StackName}-AZs"
 
   AZA:
-    Description: 'AZ of A'
+    Description: 'Availability Zone of A'
     Value: !GetAtt SubnetAPublic.AvailabilityZone
     Export:
       Name: !Sub "${AWS::StackName}-AZA"
 
   AZB:
-    Description: 'AZ of B'
+    Description: 'Availability Zone of B'
     Value: !GetAtt SubnetBPublic.AvailabilityZone
     Export:
       Name: !Sub "${AWS::StackName}-AZB"
 
   AZC:
     Condition: Have3AZs
-    Description: 'AZ of C'
+    Description: 'Availability Zone of C'
     Value: !GetAtt SubnetCPublic.AvailabilityZone
     Export:
       Name: !Sub "${AWS::StackName}-AZC"
 
   AZD:
     Condition: Have4AZs
-    Description: 'AZ of D'
+    Description: 'Availability Zone of D'
     Value: !GetAtt SubnetDPublic.AvailabilityZone
     Export:
       Name: !Sub "${AWS::StackName}-AZD"
