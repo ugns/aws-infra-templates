@@ -849,7 +849,7 @@ Resources:
       IamInstanceProfile: !Ref InstanceProfile
       InstanceType: !Ref InstanceType
       SecurityGroups:
-        - !Ref SecurityGroup
+        - !GetAtt SecurityGroup.GroupId
         - !Sub "${ParentVPCStack}-SecurityGroup"
         - !If [HasEFSVolume, {'Fn::ImportValue': !Sub "${ParentEFSStack}-SecurityGroup"}, !Ref 'AWS::NoValue']
       KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
