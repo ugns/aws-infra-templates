@@ -215,8 +215,8 @@ Resources:
           PortMappings:
             - HostPort: 0
               ContainerPort: 8082
-          Cpu: 128
-          MemoryReservation: 256
+          # Cpu: 256
+          MemoryReservation: 1024
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
@@ -271,8 +271,8 @@ Resources:
           PortMappings:
             - HostPort: 0
               ContainerPort: 8083
-          Cpu: 128
-          MemoryReservation: 256
+          # Cpu: 256
+          MemoryReservation: 1024
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
@@ -327,8 +327,8 @@ Resources:
           PortMappings:
             - HostPort: 0
               ContainerPort: 8087
-          Cpu: 128
-          MemoryReservation: 256
+          # Cpu: 256
+          MemoryReservation: 1024
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
@@ -383,8 +383,8 @@ Resources:
           PortMappings:
             - HostPort: 0
               ContainerPort: 8228
-          Cpu: 128
-          MemoryReservation: 256
+          # Cpu: 256
+          MemoryReservation: 1024
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
@@ -439,8 +439,8 @@ Resources:
           PortMappings:
             - HostPort: 0
               ContainerPort: 8338
-          Cpu: 128
-          MemoryReservation: 256
+          # Cpu: 256
+          MemoryReservation: 512
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
@@ -494,7 +494,7 @@ Resources:
         - Name: "analyzer"
           Image: !Ref engineImage
           Cpu: 256
-          MemoryReservation: 512
+          MemoryReservation: 1024
           Essential: true
           LogConfiguration:
             LogDriver: awslogs
