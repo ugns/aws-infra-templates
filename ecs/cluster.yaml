@@ -14,6 +14,11 @@ Metadata:
           - ParentAlertStack
 
       - Label:
+          default: 'VPC Parameters'
+        Parameters:
+          - VPCTier
+
+      - Label:
           default: 'EC2 Parameters'
         Parameters:
           - ECSAMI
@@ -62,6 +67,12 @@ Parameters:
     Description: 'Optional but recommended stack name of parent alert stack based on operations/alert.yaml template.'
     Type: String
     Default: ''
+
+  VPCTier:
+    Description: 'Which VPC Tier'
+    Type: String
+    Default: Private
+    AllowedValues: ['Public','Private','Data']
 
   ECSAMI:
     Description: AMI ID
@@ -839,6 +850,7 @@ Resources:
       InstanceType: !Ref InstanceType
       SecurityGroups:
         - !Ref SecurityGroup
+        - !Sub "${ParentVPCStack}-SecurityGroup"
         - !If [HasEFSVolume, {'Fn::ImportValue': !Sub "${ParentEFSStack}-SecurityGroup"}, !Ref 'AWS::NoValue']
       KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
       SpotPrice: !If [HasSpotPrice, !Ref SpotPrice, !Ref 'AWS::NoValue']
@@ -873,7 +885,7 @@ Resources:
       VPCZoneIdentifier: !Split
         - ','
         - Fn::ImportValue:
-            !Sub '${ParentVPCStack}-SubnetsPrivate'
+            !Sub "${ParentVPCStack}-Subnets${VPCTier}"
       Tags:
         - Key: Name
           Value: !Ref 'AWS::StackName'
@@ -1394,13 +1406,6 @@ Outputs:
     Value: !GetAtt LoadBalancer.CanonicalHostedZoneID
     Export:
       Name: !Sub "${AWS::StackName}-CanonicalHostedZoneID"
-
-  VPC:
-    Description: 'VPC of ECS cluster.'
-    Value:
-      Fn::ImportValue: !Sub "${ParentVPCStack}-VPC"
-    Export:
-      Name: !Sub "${AWS::StackName}-VPC"
 
   SecurityGroup:
     Description: 'Security Group of ECS cluster.'
