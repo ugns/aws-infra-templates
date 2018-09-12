@@ -609,14 +609,6 @@ Resources:
       VpcId: !Ref VPC
 
   # Setup NetworkAcl for each tier
-  NetworkAclPublic:
-    Type: AWS::EC2::NetworkAcl
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: Public
-
   NetworkAclPrivate:
     Type: AWS::EC2::NetworkAcl
     Properties:
@@ -634,12 +626,6 @@ Resources:
           Value: Data
 
   # Associate each Subnet with the respective tier NetworkAcl
-  SubnetNetworkAclAssociationAPublic:
-    Type: AWS::EC2::SubnetNetworkAclAssociation
-    Properties:
-      SubnetId: !Ref SubnetAPublic
-      NetworkAclId: !Ref NetworkAclPublic
-
   SubnetNetworkAclAssociationAPrivate:
     Type: AWS::EC2::SubnetNetworkAclAssociation
     Properties:
@@ -652,12 +638,6 @@ Resources:
       SubnetId: !Ref SubnetAData
       NetworkAclId: !Ref NetworkAclData
 
-  SubnetNetworkAclAssociationBPublic:
-    Type: AWS::EC2::SubnetNetworkAclAssociation
-    Properties:
-      SubnetId: !Ref SubnetBPublic
-      NetworkAclId: !Ref NetworkAclPublic
-
   SubnetNetworkAclAssociationBPrivate:
     Type: AWS::EC2::SubnetNetworkAclAssociation
     Properties:
@@ -669,13 +649,6 @@ Resources:
     Properties:
       SubnetId: !Ref SubnetBData
       NetworkAclId: !Ref NetworkAclData
-
-  SubnetNetworkAclAssociationCPublic:
-    Condition: Have3AZs
-    Type: AWS::EC2::SubnetNetworkAclAssociation
-    Properties:
-      SubnetId: !Ref SubnetCPublic
-      NetworkAclId: !Ref NetworkAclPublic
 
   SubnetNetworkAclAssociationCPrivate:
     Condition: Have3AZs
@@ -690,13 +663,6 @@ Resources:
     Properties:
       SubnetId: !Ref SubnetCData
       NetworkAclId: !Ref NetworkAclData
-
-  SubnetNetworkAclAssociationDPublic:
-    Condition: Have4AZs
-    Type: AWS::EC2::SubnetNetworkAclAssociation
-    Properties:
-      SubnetId: !Ref SubnetDPublic
-      NetworkAclId: !Ref NetworkAclPublic
 
   SubnetNetworkAclAssociationDPrivate:
     Condition: Have4AZs
@@ -713,51 +679,9 @@ Resources:
       NetworkAclId: !Ref NetworkAclData
 
   # Setup NetworkAclEntry for each tier
-  #   - Allow all traffic inbound & outbound for Public & Private tier
+  #   - Allow all traffic inbound & outbound for Private tier
   #   - Deny all traffic to/from Public tier to Data tier
   #   - Allow all other traffic inbound & outbound for Data Tier
-  NetworkAclEntryInPublicAllowAll:
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref NetworkAclPublic
-      RuleNumber: 100
-      Protocol: -1
-      RuleAction: allow
-      Egress: false
-      CidrBlock: '0.0.0.0/0'
-
-  NetworkAclEntryOutPublicAllowAll:
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref NetworkAclPublic
-      RuleNumber: 100
-      Protocol: -1
-      RuleAction: allow
-      Egress: true
-      CidrBlock: '0.0.0.0/0'
-
-  NetworkAclEntryInPublicAllowAllIpv6:
-    Condition: DualStacked
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref NetworkAclPublic
-      RuleNumber: 101
-      Protocol: -1
-      RuleAction: allow
-      Egress: false
-      Ipv6CidrBlock: '::/0'
-
-  NetworkAclEntryOutPublicAllowAllIpv6:
-    Condition: DualStacked
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref NetworkAclPublic
-      RuleNumber: 101
-      Protocol: -1
-      RuleAction: allow
-      Egress: true
-      Ipv6CidrBlock: '::/0'
-
   NetworkAclEntryInPrivateAllowAll:
     Type: AWS::EC2::NetworkAclEntry
     Properties:
@@ -1160,6 +1084,12 @@ Outputs:
     Value: !Ref RouteTableDData
     Export:
       Name: !Sub "${AWS::StackName}-RouteTableDData"
+
+  DefaultSecurityGroup:
+    Description: 'Default VPC Security Group'
+    Value: !GetAtt VPC.DefaultSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityGroup"
 
   EndpointS3:
     Description: 'The VPC endpoint to S3.'
