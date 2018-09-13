@@ -1370,6 +1370,12 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-Cluster"
 
+  ClusterVolume:
+    Description: 'ECS Cluster shared volume path'
+    Value: !Ref EFSDirectory
+    Export:
+      Name: !Sub "${AWS::StackName}-Volume"
+
   LoadBalancerFullName:
     Description: 'ALB full name for services.'
     Value: !GetAtt 'LoadBalancer.LoadBalancerFullName'

@@ -259,7 +259,9 @@ Resources:
       Volumes:
         - Name: "config"
           Host:
-            SourcePath: "/mnt/efs/anchore/config.yaml"
+            SourcePath: !Sub
+              - "${MountPoint}/anchore/config.yaml"
+              - MountPoint: {'Fn::ImportValue': !Sub "${ParentECSStack}-Volume"}
 
   SimpleQueueTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -315,7 +317,9 @@ Resources:
       Volumes:
         - Name: "config"
           Host:
-            SourcePath: "/mnt/efs/anchore/config.yaml"
+            SourcePath: !Sub
+              - "${MountPoint}/anchore/config.yaml"
+              - MountPoint: {'Fn::ImportValue': !Sub "${ParentECSStack}-Volume"}
 
   PolicyEngineTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -371,7 +375,9 @@ Resources:
       Volumes:
         - Name: "config"
           Host:
-            SourcePath: "/mnt/efs/anchore/config.yaml"
+            SourcePath: !Sub
+              - "${MountPoint}/anchore/config.yaml"
+              - MountPoint: {'Fn::ImportValue': !Sub "${ParentECSStack}-Volume"}
 
   APITaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -427,7 +433,9 @@ Resources:
       Volumes:
         - Name: "config"
           Host:
-            SourcePath: "/mnt/efs/anchore/config.yaml"
+            SourcePath: !Sub
+              - "${MountPoint}/anchore/config.yaml"
+              - MountPoint: {'Fn::ImportValue': !Sub "${ParentECSStack}-Volume"}
 
   K8SWebhookTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -483,7 +491,9 @@ Resources:
       Volumes:
         - Name: "config"
           Host:
-            SourcePath: "/mnt/efs/anchore/config.yaml"
+            SourcePath: !Sub
+              - "${MountPoint}/anchore/config.yaml"
+              - MountPoint: {'Fn::ImportValue': !Sub "${ParentECSStack}-Volume"}
 
   WorkerTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -537,7 +547,9 @@ Resources:
       Volumes:
         - Name: "config"
           Host:
-            SourcePath: "/mnt/efs/anchore/config.yaml"
+            SourcePath: !Sub
+              - "${MountPoint}/anchore/config.yaml"
+              - MountPoint: {'Fn::ImportValue': !Sub "${ParentECSStack}-Volume"}
 
   EnterpriseTaskDefinition:
     Condition: HasEnterprise
@@ -582,7 +594,9 @@ Resources:
       Volumes:
         - Name: "config"
           Host:
-            SourcePath: "/mnt/efs/anchore"
+            SourcePath: !Sub
+              - "${MountPoint}/anchore"
+              - MountPoint: {'Fn::ImportValue': !Sub "${ParentECSStack}-Volume"}
 
   CatalogService:
     Type: AWS::ECS::Service
