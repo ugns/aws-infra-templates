@@ -850,7 +850,7 @@ Resources:
       InstanceType: !Ref InstanceType
       SecurityGroups:
         - !GetAtt SecurityGroup.GroupId
-        - !Sub "${ParentVPCStack}-SecurityGroup"
+        - Fn::ImportValue: !Sub "${ParentVPCStack}-SecurityGroup"
         - !If [HasEFSVolume, {'Fn::ImportValue': !Sub "${ParentEFSStack}-SecurityGroup"}, !Ref 'AWS::NoValue']
       KeyName: !If [HasKeyName, !Ref KeyName, !Ref 'AWS::NoValue']
       SpotPrice: !If [HasSpotPrice, !Ref SpotPrice, !Ref 'AWS::NoValue']
