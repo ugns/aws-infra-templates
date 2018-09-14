@@ -576,7 +576,7 @@ Resources:
                   CachePort:
                     Fn::ImportValue: !Sub "${ParentRedisStack}-PrimaryEndPoint-Port"
             - Name: ANCHORE_ENABLE_SSL
-              Value: !If [HasLoadBalancerCertificateArn, 'True', 'False']
+              Value: !If [HasLoadBalancerCertificateArn, True, False]
             - Name: ANCHORE_ENABLE_PROXY
               Value: True
       Volumes:
