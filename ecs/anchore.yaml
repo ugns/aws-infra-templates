@@ -696,7 +696,7 @@ Resources:
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
-      DesiredCount: 1
+      DesiredCount: 2
       PlacementStrategies:
         - Type: spread
           Field: instanceId
